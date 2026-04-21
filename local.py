@@ -91,19 +91,34 @@ def show_random_dataset_image(dataset):
 
 
 def show_random_dataset_image_with_prediction(dataset, model, device="cpu"):
-    idx = np.random.randint(0, len(dataset))  # take a random sample
-    img, mask = dataset[idx]  # get the image and the nuclei masks
+    idx = np.random.randint(0, len(dataset))
+    img, mask = dataset[idx]
     x = img.to(device).unsqueeze(0)
-    y = model(x)[0].detach().cpu().numpy()
+    
+    # 1. Get raw output
+    raw_output = model(x)
+    
+    # 2. APPLY SIGMOID HERE (Just like in your train loop)
+    # This transforms logits (-inf, +inf) to probabilities (0, 1)
+    prediction_probs = torch.sigmoid(raw_output)
+    
+    # 3. Convert to numpy for plotting and MSE calculation
+    y = prediction_probs[0].detach().cpu().numpy()
+    
+    # Now the MSE calculation is comparing 0-1 vs 0-1
     print("MSE loss:", np.mean((mask[0].numpy() - y[0]) ** 2))
-    f, axarr = plt.subplots(1, 3)  # make two plots on one figure
-    axarr[0].imshow(img[0])  # show the image
+    
+    f, axarr = plt.subplots(1, 3)
+    axarr[0].imshow(img[0])
     axarr[0].set_title("Image")
-    axarr[1].imshow(mask[0], interpolation=None)  # show the masks
+    axarr[1].imshow(mask[0], interpolation=None)
     axarr[1].set_title("Mask")
-    axarr[2].imshow(y[0], interpolation=None)  # show the prediction
+    
+    # This will now show a clean grayscale probability map
+    axarr[2].imshow(y[0], interpolation=None)
     axarr[2].set_title("Prediction")
-    _ = [ax.axis("off") for ax in axarr]  # remove the axes
+    
+    _ = [ax.axis("off") for ax in axarr]
     print("Image size is %s" % {img[0].shape})
     plt.show()
 
@@ -185,7 +200,7 @@ def train(
     loss_function,
     epoch,
     log_interval=100,
-    log_image_interval=20,
+    log_image_interval=100,
     tb_logger=None,
     device=None,
     early_stop=False,
@@ -220,10 +235,13 @@ def train(
 
         # apply model and calculate loss
         prediction = model(x)
+        prediction_prob = torch.sigmoid(prediction)    #for the logits to prob conversion, remove it for bcewith logits.
+        
         assert prediction.shape == y.shape, (prediction.shape, y.shape)
         if y.dtype != prediction.dtype:
             y = y.type(prediction.dtype)
-        loss = loss_function(prediction, y)
+        #loss = loss_function(prediction, y)
+        loss = loss_function(prediction_prob, y)      ###for the prob conversion
         if w is not None:
             weighted_loss = loss * w
             loss = torch.mean(weighted_loss)
@@ -260,15 +278,26 @@ def train(
                 )
                 tb_logger.add_images(
                     tag="prediction",
-                    img_tensor=prediction.to("cpu").detach(),
+                    #img_tensor=prediction.to("cpu").detach(),
+                    img_tensor=prediction_prob.to("cpu").detach(),
                     global_step=step,
                 )
+                # Apply sigmoid ONLY for visualization so the image makes sense, for BCEwithLogits!
+                #viz_prediction = torch.sigmoid(prediction).to("cpu").detach()
+                #tb_logger.add_images(
+                #    tag="prediction",
+                #    img_tensor=viz_prediction,
+                #    global_step=step,
+                #)
 
         if early_stop and batch_id > 5:
             print("Stopping test early!")
             break
 
 
+
+
+    
 def compute_affinities(seg: np.ndarray, nhood: list):
     nhood = np.array(nhood)
 
